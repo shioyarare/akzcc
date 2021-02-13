@@ -154,14 +154,21 @@ class Parser {
 		}
 		writeln("  push rax");
 	}
-
+	
+	Node* unary() {
+		if(consume('+'))
+			return primary();
+		if(consume('-'))
+			return new_node(NodeKind.SUB, new_node_num(0), primary());
+		return primary();
+	}
 	Node* mul() {
-		auto node = primary();
+		auto node = unary();
 		while(1) {
 			if(consume('*'))
-				node = new_node(NodeKind.MUL, node, primary());
+				node = new_node(NodeKind.MUL, node, unary());
 			else if(consume('/'))
-				node = new_node(NodeKind.DIV, node, primary());
+				node = new_node(NodeKind.DIV, node, unary());
 			else
 				return node;
 		}
