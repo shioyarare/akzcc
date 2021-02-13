@@ -14,6 +14,20 @@ enum TokenKind{
 	EOF,
 }
 
+enum NodeKind{
+	ADD,
+	SUB,
+	MUL,
+	DIV,
+	NUM,
+}
+
+struct Node {
+	NodeKind kind;
+	Node *lhs;
+	Node *rhs;
+	int val;
+}
 struct Token {
 	TokenKind kind;
 	int val;
@@ -28,8 +42,12 @@ int strtol(ref string str, ref int i) {
 
 class Parser {
 	Token[] token;
+	auto node = new Node;
 	string anl_str;
 	int curr;
+	void parse() {
+		node = expr();
+	}
 	void tokenize(string str) {
 		anl_str = str;
 		int i;
@@ -39,7 +57,7 @@ class Parser {
 				continue;
 			}
 
-			if(str[i]=='+' || str[i]=='-') {
+			if( "+-*/()".count(str[i])>0 ) {
 				token ~= Token(TokenKind.RESERVED, 0, str[i++].to!string);
 				continue;
 			}
@@ -59,7 +77,8 @@ class Parser {
 	}
 
 	bool consume(char op) {
-		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) return false;
+		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) 
+			return false;
 
 		curr++;
 		return true;
@@ -76,6 +95,85 @@ class Parser {
 		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) 
 			error_at(anl_str, curr, format("Is not the '%c'", op));
 		curr++;
+	}
+
+	Node* new_node(NodeKind kind, Node *lhs, Node *rhs) {
+		auto node = new Node;
+		node.kind = kind;
+		node.lhs = lhs;
+		node.rhs = rhs;
+		return node;
+	} 
+
+	Node* new_node_num(int val) {
+		auto node = new Node;
+		node.kind = NodeKind.NUM;
+		node.val = val;
+		return node;
+	}
+	Node* expr() {
+		Node *node = mul();
+
+		while(1) {
+			if(consume('+'))
+				node = new_node(NodeKind.ADD, node, mul());
+			else if (consume('-'))
+				node = new_node(NodeKind.SUB, node, mul());
+			else
+				return node;
+		}
+	}
+	void gen(Node* t_node){
+		if(t_node.kind==NodeKind.NUM) {
+			writeln("  push ", t_node.val);
+			return;
+		}
+
+		gen(t_node.lhs);
+		gen(t_node.rhs);
+
+		writeln("  pop rdi");
+		writeln("  pop rax");
+
+		switch(t_node.kind) {
+			case NodeKind.ADD:
+				writeln("  add rax, rdi");
+				break;
+			case NodeKind.SUB:
+				writeln("  sub rax, rdi");
+				break;
+			case NodeKind.MUL:
+				writeln("  imul rax, rdi");
+				break;
+			case NodeKind.DIV:
+				writeln("  cqo");
+				writeln("  idiv rdi");
+				break;
+			default:
+				break;
+		}
+		writeln("  push rax");
+	}
+
+	Node* mul() {
+		auto node = primary();
+		while(1) {
+			if(consume('*'))
+				node = new_node(NodeKind.MUL, node, primary());
+			else if(consume('/'))
+				node = new_node(NodeKind.DIV, node, primary());
+			else
+				return node;
+		}
+	}
+	Node* primary() {
+		if(consume('(')) {
+			Node* node = expr();
+			expect(')');
+			return node;
+		}
+
+		return new_node_num(expect_number());
 	}
 }
 
@@ -100,22 +198,14 @@ int main(string[] args){
 
 	auto parser = new Parser;
 	parser.tokenize( args[1] );
-
+	parser.parse();
 
 	writeln(".intel_syntax noprefix");
 	writeln(".global main");
 	writeln("main:");
-
-	writeln("  mov rax, ", parser.expect_number());
-		while( !parser.at_eof() ) {
-		if( parser.consume('+') ) {
-			writeln("  add rax, ", parser.expect_number());
-			continue;
-		}
-
-		parser.expect('-');
-		writeln("  sub rax, ", parser.expect_number());
-	}
+	
+	parser.gen(parser.node);
+	writeln("  pop rax");
 	writeln("ret");
 	return 0;
 }
