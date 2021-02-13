@@ -1,9 +1,12 @@
 import std;
 import core.stdc.stdlib;
-void error() {
-	writeln("error");
+
+void error_at(string user_input, int loc, string message) {
+	stderr.writeln(user_input);
+	stderr.writeln(" ".repeat(loc).join(""), "^", message);
 	exit(1);
 }
+
 enum TokenKind{
 	BOF,
 	RESERVED,
@@ -25,8 +28,10 @@ int strtol(ref string str, ref int i) {
 
 class Parser {
 	Token[] token;
+	string anl_str;
 	int curr;
 	void tokenize(string str) {
+		anl_str = str;
 		int i;
 		while(str.length>i) {
 			if( str[i].isSpace() ) {
@@ -44,8 +49,7 @@ class Parser {
 				token[$-1].val = strtol(str, i);
 				continue;
 			}
-
-			error();
+			error_at(anl_str, i, format("Cannnot Tokenize."));
 		}
 		token ~= Token(TokenKind.EOF, 0, i.to!string);
 	}
@@ -62,14 +66,15 @@ class Parser {
 	}
 
 	int expect_number() {
-		if( token[curr].kind != TokenKind.NUM ) error();
+		if( token[curr].kind != TokenKind.NUM ) error_at(anl_str, curr, format("Is not a number"));
 		int val = token[curr].val;
 		curr++;
 		return val;
 	}
 
 	void expect(char op) {
-		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) error();
+		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) 
+			error_at(anl_str, curr, format("Is not the '%c'", op));
 		curr++;
 	}
 }
