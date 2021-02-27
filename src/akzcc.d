@@ -15,11 +15,15 @@ enum TokenKind{
 }
 
 enum NodeKind{
-	ADD,
-	SUB,
-	MUL,
-	DIV,
-	NUM,
+	ADD, // +
+	SUB, // - 
+	MUL, // /
+	DIV, // ==
+	EQ, // !=
+	NE, // !=
+	LT, // <
+	LE, // <=
+	NUM, // Integer
 }
 
 struct Node {
@@ -32,6 +36,7 @@ struct Token {
 	TokenKind kind;
 	int val;
 	string str;
+	int len;
 }
 
 int strtol(ref string str, ref int i) {
@@ -57,13 +62,25 @@ class Parser {
 				continue;
 			}
 
+			// Punctuator
 			if( "+-*/()".count(str[i])>0 ) {
-				token ~= Token(TokenKind.RESERVED, 0, str[i++].to!string);
+				token ~= Token(TokenKind.RESERVED, 0, str[i++].to!string, 1);
 				continue;
 			}
-
+			// Multi-letter punctuator
+			if( str[i..$].length >= 2 && (
+					str[i..i+2] == "==" || str[i..i+2] == "!=" ||
+					str[i..i+2] == "<=" || str[i..i+2] == ">=") ) {
+				token ~= Token(TokenKind.RESERVED, 0, str[i..i+2], 2);
+				i+= 2;
+				continue;
+			}
+			// Single-letter punctuator
+			if( "+-*/()<>".count(str[i]) > 0 ) {
+				token ~= Token(TokenKind.RESERVED, 0, str[i++].to!string, 1);
+			}
 			if(str[i].isDigit()) {
-				token ~= Token(TokenKind.NUM, 0, str[i].to!string);
+				token ~= Token(TokenKind.NUM, 0, str[i].to!string, 0);
 				token[$-1].val = strtol(str, i);
 				continue;
 			}
@@ -76,8 +93,8 @@ class Parser {
 		return token[curr].kind == TokenKind.EOF;
 	}
 
-	bool consume(char op) {
-		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) 
+	bool consume(string op) {
+		if( token[curr].kind != TokenKind.RESERVED || op != token[curr].str ) 
 			return false;
 
 		curr++;
@@ -91,8 +108,8 @@ class Parser {
 		return val;
 	}
 
-	void expect(char op) {
-		if( token[curr].kind != TokenKind.RESERVED || token[curr].str[0] != op ) 
+	void expect(string op) {
+		if( token[curr].kind != TokenKind.RESERVED || token[curr].str != op ) 
 			error_at(anl_str, curr, format("Is not the '%c'", op));
 		curr++;
 	}
@@ -111,17 +128,72 @@ class Parser {
 		node.val = val;
 		return node;
 	}
+	/*
 	Node* expr() {
 		Node *node = mul();
 
 		while(1) {
-			if(consume('+'))
+			if(consume("+"))
 				node = new_node(NodeKind.ADD, node, mul());
-			else if (consume('-'))
+			else if (consume("-"))
 				node = new_node(NodeKind.SUB, node, mul());
 			else
 				return node;
 		}
+	}
+	*/
+	Node *expr() {
+		return equality();
+	}
+
+	Node *equality() {
+		Node *node = relational();
+
+		while(1) {
+			if(consume("=="))
+				node = new_binary(NodeKind.EQ, node, relational());
+			else if(consume("!="))
+				node = new_binary(NodeKind.NE, node, relational());
+			else
+				return node;
+		}
+	}
+
+	Node *relational() {
+		Node *node = add();
+
+		while(1) {
+			if(consume("<"))
+				node = new_binary(NodeKind.LT, node, add());
+			else if(consume("<="))
+				node = new_binary(NodeKind.LE, node, add());
+			else if(consume(">"))
+				node = new_binary(NodeKind.LT, add(), node);
+			else if(consume(">="))
+				node = new_binary(NodeKind.LE, add(), node);
+			else
+				return node;
+		}
+	}
+
+	Node *add() {
+		Node *node = mul();
+
+		while(1) {
+			if(consume("+"))
+				node = new_binary(NodeKind.ADD, node, mul());
+			else if(consume("-"))
+				node = new_binary(NodeKind.SUB, node, mul());
+			else
+				return node;
+		}
+	}
+
+	Node* new_binary(NodeKind kind, Node *lhs, Node *rhs) {
+		Node *node = new Node(kind, null, null, 0);
+		node.lhs = lhs;
+		node.rhs = rhs;
+		return node;
 	}
 	void gen(Node* t_node){
 		if(t_node.kind==NodeKind.NUM) {
@@ -149,6 +221,26 @@ class Parser {
 				writeln("  cqo");
 				writeln("  idiv rdi");
 				break;
+			case NodeKind.EQ:
+				writeln("  cmp rax, rdi");
+				writeln("  sete al");
+				writeln("  movzb rax, al");
+				break;
+			case NodeKind.NE:
+				writeln("  cmp rax, rdi");
+				writeln("  setne al");
+				writeln("  movzb rax, al");
+				break;
+			case NodeKind.LT:
+				writeln("  cmp rax, rdi");
+				writeln("  setl al");
+				writeln("  movzb rax, al");
+				break;
+			case NodeKind.LE:
+				writeln("  cmp rax, rdi");
+				writeln("  setle al");
+				writeln("  movzb rax, al");
+				break;
 			default:
 				break;
 		}
@@ -156,27 +248,27 @@ class Parser {
 	}
 	
 	Node* unary() {
-		if(consume('+'))
+		if(consume("+"))
 			return primary();
-		if(consume('-'))
+		if(consume("-"))
 			return new_node(NodeKind.SUB, new_node_num(0), primary());
 		return primary();
 	}
 	Node* mul() {
 		auto node = unary();
 		while(1) {
-			if(consume('*'))
+			if(consume("*"))
 				node = new_node(NodeKind.MUL, node, unary());
-			else if(consume('/'))
+			else if(consume("/"))
 				node = new_node(NodeKind.DIV, node, unary());
 			else
 				return node;
 		}
 	}
 	Node* primary() {
-		if(consume('(')) {
+		if(consume("(")) {
 			Node* node = expr();
-			expect(')');
+			expect(")");
 			return node;
 		}
 
